@@ -8,6 +8,9 @@ const userSettingsFormEl = document.getElementById("user-settings-form");
 const links = document.querySelectorAll('.nav a');
 const authLinks = document.querySelectorAll('.auth-link');
 const unauthLinks = document.querySelectorAll('.unauth-link');
+const mfaCodeRowEl = document.getElementById("mfa-code-row");
+const unenrollMFAFormEl = document.getElementById("unenroll-mfa-form");
+const startMFAEl = document.getElementById("start-mfa");
 
 let tvUser = null;
 let tasksDocumentId = null;
@@ -24,6 +27,9 @@ function setState(newState) {
     authFormEl.style.display = 'none';
     loggedInPageEl.style.display = 'none';
     userSettingsFormEl.style.display = 'none';
+    mfaCodeRowEl.style.display = 'none';
+    unenrollMFAFormEl.style.display = 'none';
+    startMFAEl.style.display = 'none';
 
     links.forEach(link => link.style.display = 'none');
 
@@ -52,7 +58,13 @@ function setState(newState) {
                 location.hash = '#sign_in';
                 return;
             }
-            userSettingsFormEl.style.display = '';
+
+            if (tvUser.mfa_enrolled) {
+                unenrollMFAFormEl.style.display = '';
+            } else {
+                startMFAEl.style.display = '';
+            }
+
             break;
         case '#sign_in':
             authFormEl.style.display = '';
@@ -74,7 +86,7 @@ authFormEl.addEventListener("submit", e => {
     if (location.hash === '#sign_up') {
         authPromise = registerUser(this.username.value, this.password.value);
     } else {
-        authPromise = loginUser(this.username.value, this.password.value);
+        authPromise = loginUser(this.username.value, this.password.value, this.mfa_code.value);
     }
 
     authPromise
@@ -85,6 +97,23 @@ authFormEl.addEventListener("submit", e => {
         .catch(error => {
             authValidationErrorEl.style.display = '';
             authValidationErrorEl.textContent = error.message;
+
+            if (error.response.error.type === 'USER.MFA_CODE_REQUIRED') {
+                mfaCodeRowEl.style.display = '';
+            }
+        });
+});
+
+unenrollMFAFormEl.addEventListener("submit", e => {
+    e.preventDefault();
+
+    unenrollMFA(tvUser.access_token, tvUser.id, this.unenroll_mfa_code.value, this.unenroll_mfa_password.value)
+        .then(() => {
+            tvUser.mfa_enrolled = false;
+            refreshState();
+        })
+        .catch(error => {
+            alert(error.message);
         });
 });
 
@@ -149,6 +178,28 @@ document.getElementById("add-task-form").addEventListener('submit', e => {
     saveTasks();
 
     displayTasks();
+});
+
+document.getElementById("start-mfa").addEventListener('click', e => {
+    e.preventDefault();
+
+    startUserMFAEnrollment(tvUser.access_token, tvUser.id)
+        .then(response => {
+            userSettingsFormEl.style.display = '';
+            document.getElementById('mfa-qr-code').src = `data:image/svg+xml;base64,${btoa(response.mfa.qr_code_svg)}`;
+        })
+        .catch(e => alert(e.message));
+});
+
+userSettingsFormEl.addEventListener('submit', e => {
+    e.preventDefault();
+
+    finalizeMFAEnrollment(tvUser.access_token, tvUser.id, this.mfa_code_1.value, this.mfa_code_2.value)
+        .then(() => {
+            tvUser.mfa_enrolled = true;
+            refreshState();
+        })
+        .catch(e => alert(e.message));
 });
 
 window.onpopstate = () => setState(location.hash);

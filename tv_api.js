@@ -39,12 +39,18 @@ function tvRequest(auth, method, path, formParams, structureToJson) {
     });
 }
 
-function loginUser(username, password) {
-    return tvRequest(null, "POST", "auth/login", {
+function loginUser(username, password, mfaCode) {
+    let formParams = {
         account_id: TV_CREDENTIALS.ACCOUNT_ID,
         username: username,
         password: password
-    });
+    };
+
+    if (mfaCode) {
+        formParams.mfa_code = mfaCode;
+    }
+
+    return tvRequest(null, "POST", "auth/login", formParams);
 }
 
 function createUser(apiKey, username, password) {
@@ -57,6 +63,26 @@ function createUser(apiKey, username, password) {
 function addUserToGroup(apiKey, userId, groupId) {
     return tvRequest(apiKey, "POST", `groups/${groupId}/membership`, null, {
         user_ids: [userId]
+    });
+}
+
+function startUserMFAEnrollment(accessToken, userId) {
+    return tvRequest(accessToken, "POST", `users/${userId}/mfa/start_enrollment`, null, {
+        issuer: 'True Do'
+    });
+}
+
+function finalizeMFAEnrollment(accessToken, userId, mfaCode1, mfaCode2) {
+    return tvRequest(accessToken, "POST", `users/${userId}/mfa/finalize_enrollment`, null, {
+        mfa_code_1: mfaCode1,
+        mfa_code_2: mfaCode2
+    });
+}
+
+function unenrollMFA(accessToken, userId, mfaCode, password) {
+    return tvRequest(accessToken, "POST", `users/${userId}/mfa/unenroll`, {
+        mfa_code: mfaCode,
+        password: password
     });
 }
 

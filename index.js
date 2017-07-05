@@ -12,15 +12,21 @@ const mfaCodeRowEl = document.getElementById("mfa-code-row");
 const unenrollMFAFormEl = document.getElementById("unenroll-mfa-form");
 const startMFAEl = document.getElementById("start-mfa");
 
-let tvUser = null;
-let tasksDocumentId = null;
+const createUserTvClient = new TrueVaultClient(TV_CREDENTIALS.CREATE_USER_API_KEY);
+let tvUser;
+let tvUserClient;
+let tasksDocumentId;
 let tasks = [];
 
-function registerUser(username, password) {
-    return createUser(TV_CREDENTIALS.CREATE_USER_API_KEY, username, password)
-        .then(function (response) {
-            return addUserToGroup(TV_CREDENTIALS.CREATE_USER_API_KEY, response.user.id, TV_CREDENTIALS.GROUP_ID).then(() => response);
-        });
+async function loginUser(username, password, mfaCode){
+    tvUserClient = await TrueVaultClient.login(TV_CREDENTIALS.ACCOUNT_ID, username, password, mfaCode);
+    tvUser = await tvUserClient.readCurrentUser();
+}
+
+async function registerUser(username, password) {
+    tvUser = await createUserTvClient.createUser(username, password);
+    await createUserTvClient.addUsersToGroup(TV_CREDENTIALS.GROUP_ID, [tvUser.id]);
+    tvUserClient = new TrueVaultClient(tvUser.access_token);
 }
 
 function setState(newState) {
@@ -76,7 +82,7 @@ function setState(newState) {
     }
 }
 
-authFormEl.addEventListener("submit", e => {
+authFormEl.addEventListener("submit", async e => {
     e.preventDefault();
 
     authValidationErrorEl.style.display = 'none';
@@ -89,57 +95,46 @@ authFormEl.addEventListener("submit", e => {
         authPromise = loginUser(this.username.value, this.password.value, this.mfa_code.value);
     }
 
-    authPromise
-        .then(response => {
-            tvUser = response.user;
-            location.hash = '#tasks';
-        })
-        .catch(error => {
-            authValidationErrorEl.style.display = '';
-            authValidationErrorEl.textContent = error.message;
-
-            if (error.response.error.type === 'USER.MFA_CODE_REQUIRED') {
-                mfaCodeRowEl.style.display = '';
-            }
-        });
+    try {
+        await authPromise;
+        location.hash = '#tasks';
+    } catch (error) {
+        authValidationErrorEl.style.display = '';
+        authValidationErrorEl.textContent = error.message;
+        if (error.error.type === 'USER.MFA_CODE_REQUIRED') {
+            mfaCodeRowEl.style.display = '';
+        }
+    }
 });
 
-unenrollMFAFormEl.addEventListener("submit", e => {
+unenrollMFAFormEl.addEventListener("submit", async e => {
     e.preventDefault();
 
-    unenrollMFA(tvUser.access_token, tvUser.id, this.unenroll_mfa_code.value, this.unenroll_mfa_password.value)
-        .then(() => {
-            tvUser.mfa_enrolled = false;
-            refreshState();
-        })
-        .catch(error => {
-            alert(error.message);
-        });
+    try {
+        await tvUserClient.unenrollMfa(tvUser.id, this.unenroll_mfa_code.value, this.unenroll_mfa_password.value);
+        tvUser.mfa_enrolled = false;
+        refreshState();
+    } catch (error) {
+        alert(error.message);
+    }
 });
 
-function refreshTasks() {
-    getDocuments(tvUser.access_token, TV_CREDENTIALS.VAULT_ID)
-        .then(response => {
-            if (response.data.items.length > 0) {
-                const item = response.data.items[0];
-                return {
-                    id: item.id,
-                    doc: JSON.parse(atob(item.document))
-                };
-            } else {
-                return createDocument(tvUser.access_token, TV_CREDENTIALS.VAULT_ID, tvUser.id, [])
-                    .then(response => ({
-                        id: response.document_id,
-                        doc: []
-                    }));
-            }
-        })
-        .then(t => {
-            tasksDocumentId = t.id;
-            tasks = t.doc;
-            displayTasks();
-        })
-        .catch(error => alert(error.message));
+async function refreshTasks() {
+    try {
+        const listDocsResponse = await tvUserClient.listDocuments(TV_CREDENTIALS.VAULT_ID, true);
+        if (listDocsResponse.items.length > 0) {
+            const item = listDocsResponse.items[0];
+            tasksDocumentId = item.id;
+            tasks = item.document;
+        } else {
+            const createDocResponse = await tvUserClient.createDocument(TV_CREDENTIALS.VAULT_ID, null, [], tvUser.id);
+            tasksDocumentId = createDocResponse.document_id;
+            tasks = [];
+        }
+        displayTasks();
+    } catch (error) {
+        alert(error.message);
+    }
 }
 
 function displayTasks() {
@@ -165,7 +160,7 @@ tasksTableBodyEl.addEventListener('click', e => {
 });
 
 function saveTasks() {
-    return updateDocument(tvUser.access_token, TV_CREDENTIALS.VAULT_ID, tasksDocumentId, tasks);
+    return tvUserClient.updateDocument(TV_CREDENTIALS.VAULT_ID, tasksDocumentId, tasks);
 }
 
 document.getElementById("add-task-form").addEventListener('submit', e => {
@@ -180,26 +175,28 @@ document.getElementById("add-task-form").addEventListener('submit', e => {
     displayTasks();
 });
 
-document.getElementById("start-mfa").addEventListener('click', e => {
+document.getElementById("start-mfa").addEventListener('click', async e => {
     e.preventDefault();
 
-    startUserMFAEnrollment(tvUser.access_token, tvUser.id)
-        .then(response => {
-            userSettingsFormEl.style.display = '';
-            document.getElementById('mfa-qr-code').src = `data:image/svg+xml;base64,${btoa(response.mfa.qr_code_svg)}`;
-        })
-        .catch(e => alert(e.message));
+    try {
+        const response = await tvUserClient.startUserMfaEnrollment(tvUser.id, 'True Do');
+        userSettingsFormEl.style.display = '';
+        document.getElementById('mfa-qr-code').src = `data:image/svg+xml;base64,${btoa(response.mfa.qr_code_svg)}`;
+    } catch (error) {
+        alert(error.message)
+    }
 });
 
-userSettingsFormEl.addEventListener('submit', e => {
+userSettingsFormEl.addEventListener('submit', async e => {
     e.preventDefault();
 
-    finalizeMFAEnrollment(tvUser.access_token, tvUser.id, this.mfa_code_1.value, this.mfa_code_2.value)
-        .then(() => {
-            tvUser.mfa_enrolled = true;
-            refreshState();
-        })
-        .catch(e => alert(e.message));
+    try {
+        await tvUserClient.finalizeMfaEnrollment(tvUser.id, this.mfa_code_1.value, this.mfa_code_2.value);
+        tvUser.mfa_enrolled = true;
+        refreshState();
+    } catch (error) {
+        alert(error.message);
+    }
 });
 
 window.onpopstate = () => setState(location.hash);

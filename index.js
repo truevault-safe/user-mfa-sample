@@ -24,8 +24,7 @@ async function loginUser(username, password, mfaCode){
 }
 
 async function registerUser(username, password) {
-    tvUser = await createUserTvClient.createUser(username, password);
-    await createUserTvClient.addUsersToGroup(TV_CREDENTIALS.GROUP_ID, [tvUser.id]);
+    tvUser = await createUserTvClient.createUser(username, password, {}, [TV_CREDENTIALS.GROUP_ID]);
     tvUserClient = new TrueVaultClient(tvUser.access_token);
 }
 

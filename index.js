@@ -12,7 +12,7 @@ const mfaCodeRowEl = document.getElementById("mfa-code-row");
 const unenrollMFAFormEl = document.getElementById("unenroll-mfa-form");
 const startMFAEl = document.getElementById("start-mfa");
 
-const createUserTvClient = new TrueVaultClient(TV_CREDENTIALS.CREATE_USER_API_KEY);
+const createUserTvClient = new TrueVaultClient({apiKey: TV_CREDENTIALS.CREATE_USER_API_KEY});
 let tvUser;
 let tvUserClient;
 let tasksDocumentId;
